@@ -2,7 +2,6 @@ import httpx
 import os
 from fastapi import HTTPException
 
-# Remover load_dotenv() daqui, pois já foi carregado em main.py
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 if not OPENAI_API_KEY:
@@ -17,7 +16,7 @@ async def validate_itinerary(itinerary: dict) -> dict:
     prompt = f"Valide o seguinte itinerário turístico e faça sugestões: {itinerary}"
 
     data = {
-        "model": "gpt-4",
+        "model": "gpt-4o-mini",
         "messages": [
             {"role": "system", "content": "Você é um assistente de viagem."},
             {"role": "user", "content": prompt}
@@ -34,7 +33,7 @@ async def validate_itinerary(itinerary: dict) -> dict:
         if response.status_code != 200:
             raise HTTPException(status_code=response.status_code, detail=f"Erro ao validar o itinerário: {response.text}")
 
-        # Processar a resposta da IA
+    
         result = response.json()
         suggestions = result['choices'][0]['message']['content']
 
