@@ -1,10 +1,9 @@
 import json
-import requests
+from typing import Any
 
-from src.models.validator_models import TripValidatorResponse
-from src.models.validator_models import TripValidatorOutput
+from models.validator_models import TripValidatorOutput, TripValidatorResponse
 
-#TODO: Modificar o input esperado pela NLP e configurar o output para o formato esperado 
+# TODO: Modificar o input esperado pela NLP e configurar o output para o formato esperado
 """
 Formato esperado:
 HEADER
@@ -24,9 +23,10 @@ version: str,
 
 """
 
+
 class ValidatorParser:
     @staticmethod
-    def parse(response: requests.Response) -> TripValidatorResponse:
+    def parse(response: Any) -> TripValidatorResponse:
         payload = response.json()
         headers = response.headers
 
@@ -37,7 +37,7 @@ class ValidatorParser:
         )
 
     @staticmethod
-    def _parse_trip_validator_output(output_data: dict[str, any]) -> TripValidatorOutput:
+    def _parse_trip_validator_output(output_data: dict[str, Any]) -> TripValidatorOutput:
         try:
             json_output = json.loads(output_data)
             if "is_valid" not in json_output:
@@ -48,7 +48,7 @@ class ValidatorParser:
                 raise ValueError("The validator output data must contain the 'feedback' field.")
             if "optimization_suggestions" not in json_output:
                 raise ValueError("The validator output data must contain the 'optimization_suggestions' field.")
-            
+
             return TripValidatorOutput(
                 is_valid=output_data["is_valid"],
                 validation_score=output_data["validation_score"],
@@ -59,25 +59,23 @@ class ValidatorParser:
         except json.JSONDecodeError as e:
             raise ValueError(f"Failed to parse the validator output data: {e}")
 
-
     @staticmethod
     def _parse_version_tripvalidator(output_data: str) -> str:
         try:
             json_output = json.loads(output_data)
             if "version" not in json_output:
                 raise ValueError("The validator output data must contain the 'version' field.")
-            
+
             return output_data["version"]
 
         except json.JSONDecodeError as e:
             raise ValueError(f"Failed to parse the validator output data: {e}")
 
-
     @staticmethod
     def _parse_processing_time_tripvalidator(headers: dict[str, str]) -> float:
         # Verifica se o cabeçalho "X-Processing-Time" está presente na resposta
-        processing_time = headers.get('X-Processing-Time')
+        processing_time = headers.get("X-Processing-Time")
         if processing_time:
-            return float(processing_time) 
+            return float(processing_time)
         else:
             raise ValueError("The response does not contain the 'X-Processing-Time' header.")

@@ -1,8 +1,10 @@
+import logging
 import time
 from datetime import datetime
-from typing import Annotated, List
+from typing import Annotated, Any, List
 
 import aiohttp
+from aiohttp import ClientConnectionError
 from fastapi import HTTPException
 from pydantic import BaseModel, Field, ValidationError
 
@@ -17,6 +19,9 @@ from models.validator_models import (
     TripValidatorRequest,
     TripValidatorResponse,
 )
+from parsers.validator_parsers import ValidatorParser
+
+logger = logging.getLogger(__name__)
 
 
 class ValidationService:
@@ -25,23 +30,24 @@ class ValidationService:
         if not self.openai_api_key:
             raise ValueError("OpenAI API key not configured correctly.")
         self.openai_api_url = "https://api.openai.com/v1/chat/completions"
+        self.ai_results_parser = ValidatorParser()
 
-    async def validate_itinerary(self, input_data: TripValidatorInput) -> TripValidatorResponse:
+    async def validate_itinerary(self, client_data: TripValidatorInput) -> TripValidatorResponse:
         try:
-            parsed_input = self._parse_input(input_data)
+            ai_prompt_data_request = self._build_ai_request(client_data)
+            ai_validation_results = await self._ai_request_validation(ai_prompt_data_request)
+            processed_results = self._process_ai_results(validation_results=ai_validation_results)
         except ValidationError as e:
             raise HTTPException(status_code=400, detail=f"Invalid input data: {str(e)}")
-        ai_validation_result = await self._ai_validate(parsed_input)
-        validation_output = self._process_ai_results(ai_validation_result)
+        except Exception as e:
+            raise e
 
-        return validation_output
+        return processed_results
 
-    def _parse_input(self, input_data: TripValidatorInput) -> TripValidatorInput:
-        return input_data
+    def _build_ai_request(self, input_data: TripValidatorInput) -> dict[str, Any]:
+        """Builds input data and prompt for requesting to the AI model."""
 
-    async def _ai_validate(self, parsed_input: TripValidatorInput) -> dict:
-        headers = {"Authorization": f"Bearer {self.openai_api_key}", "Content-Type": "application/json"}
-        prompt = f"Validate the following travel itinerary and provide suggestions: {parsed_input.model_dump()}"
+        prompt = f"Validate the following travel itinerary and provide suggestions: {input_data.model_dump()}"
         data = {
             "model": "gpt-4o-mini",
             "messages": [
@@ -49,19 +55,27 @@ class ValidationService:
                 {"role": "user", "content": prompt},
             ],
         }
+        return data
 
+    async def _ai_request_validation(self, data: dict[str, Any]) -> dict:
+        headers = {"Authorization": f"Bearer {self.openai_api_key}", "Content-Type": "application/json"}
         async with aiohttp.ClientSession() as session:
-            async with session.post(self.openai_api_url, headers=headers, json=data) as response:
-                if response.status != 200:
-                    raise HTTPException(
-                        status_code=response.status, detail=f"Error validating itinerary: {await response.text()}"
-                    )
+            endpoint = self.openai_api_url
+            try:
+                async with session.post(self.openai_api_url, headers=headers, json=data) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        print(result)
+                        return {"suggestions": result["choices"][0]["message"]["content"]}
+                    logger.error(msg := f"{__name__} raised for status: {response.status}")
+                    raise HTTPException(status_code=response.status, detail=msg)
+            except (ClientConnectionError, HTTPException) as e:
+                logger.error(f"Request error for URL {endpoint}: {e}")
+                raise e
 
-                result = await response.json()
-                return {"suggestions": result["choices"][0]["message"]["content"]}
-
-    def _process_ai_results(self, ai_results: dict) -> TripValidatorResponse:
-        suggestions = ai_results.get("suggestions", "")
+    def _process_ai_results(self, validation_results: dict[str, Any]) -> TripValidatorResponse:
+        # TODO: Use the ai_validation_parser here and implement processing.
+        suggestions = validation_results.get("suggestions", "")
         is_valid = "valid" in suggestions.lower() and "invalid" not in suggestions.lower()
         validation_score = 0.9 if is_valid else 0.5
 
