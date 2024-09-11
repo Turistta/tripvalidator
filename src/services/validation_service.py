@@ -1,5 +1,6 @@
 import logging
 import time
+from ast import parse
 from datetime import datetime
 from typing import Annotated, Any, List
 
@@ -47,7 +48,33 @@ class ValidationService:
     def _build_ai_request(self, input_data: TripValidatorInput) -> dict[str, Any]:
         """Builds input data and prompt for requesting to the AI model."""
 
-        prompt = f"Validate the following travel itinerary and provide suggestions: {input_data.model_dump()}"
+        prompt = f"""
+        Validate the following travel itinerary and provide suggestions: {input_data.model_dump()}
+        Return the response in the following format:
+        
+        HEADER
+        X-Processing-Time: float
+        ---------------
+        PAYLOAD
+        
+            "output_data":
+                "is_valid": bool,
+                "validation_score": float,
+                "feedback": str,
+                "optimization_suggestions": [
+                    
+                    "original_segment":
+                    "suggested_segment":
+                    "reason":
+                    "estimated_improvement":
+                
+                ],
+
+                In original_segment, put the original itinerary, in suggested_segment, put the suggestions
+            ,
+            "version": str
+        
+        """
         data = {
             "model": "gpt-4o-mini",
             "messages": [
@@ -55,6 +82,7 @@ class ValidationService:
                 {"role": "user", "content": prompt},
             ],
         }
+
         return data
 
     async def _ai_request_validation(self, data: dict[str, Any]) -> dict:
@@ -75,6 +103,13 @@ class ValidationService:
 
     def _process_ai_results(self, validation_results: dict[str, Any]) -> TripValidatorResponse:
         # TODO: Use the ai_validation_parser here and implement processing.
+
+        try:
+            parsed_results = self.ai_results_parser.parse(validation_results)
+            print(parsed_results)
+        except:
+            pass
+
         suggestions = validation_results.get("suggestions", "")
         is_valid = "valid" in suggestions.lower() and "invalid" not in suggestions.lower()
         validation_score = 0.9 if is_valid else 0.5
