@@ -20,7 +20,7 @@ class CostDetails(BaseModel):
 class CostEstimate(BaseModel):
     source_urls: Annotated[
         List[HttpUrl],
-        Field(description="Source URLs for cost estimation data", examples=["https://example.com/fuel-prices"]),
+        Field(description="Source URLs for cost estimation data", examples=[["https://example.com/fuel-prices"]]),
     ]
     source_description: Annotated[
         str, Field(description="Description of the source for cost data", examples=["Official Petrobrás website."])

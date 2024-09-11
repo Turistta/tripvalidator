@@ -63,4 +63,4 @@ class PlaceDetails(BaseModel):
     reviews: Annotated[Optional[List[Review]], Field(default=None, description="List of user reviews for the place")]
     pictures: Annotated[List[Picture], Field(description="List of pictures of the place")]
     ratings_total: Annotated[int, Field(ge=0, description="Total number of ratings", examples=[12000])]
-    opening_hours: Annotated[Optional[OpeningHours], Field(default=None, description="Opening hours of the place")]
+    # opening_hours: Annotated[Optional[OpeningHours], Field(default=None, description="Opening hours of the place")] # TODO: Fix opening hours.
