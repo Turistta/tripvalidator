@@ -41,7 +41,33 @@ class ValidationService:
 
     async def _ai_validate(self, parsed_input: TripValidatorInput) -> dict:
         headers = {"Authorization": f"Bearer {self.openai_api_key}", "Content-Type": "application/json"}
-        prompt = f"Validate the following travel itinerary and provide suggestions: {parsed_input.model_dump()}"
+        prompt = f"""
+        Validate the following travel itinerary and provide suggestions: {parsed_input.model_dump()}
+        Return the response in the following format:
+        
+        HEADER
+        X-Processing-Time: float
+        ---------------
+        PAYLOAD
+        
+            "output_data":
+                "is_valid": bool,
+                "validation_score": float,
+                "feedback": str,
+                "optimization_suggestions": [
+                    
+                    "original_segment":
+                    "suggested_segment":
+                    "reason":
+                    "estimated_improvement":
+                
+                ],
+
+                In original_segment, put the original itinerary, in suggested_segment, put the suggestions
+            ,
+            "version": str
+        
+        """
         data = {
             "model": "gpt-4o-mini",
             "messages": [
