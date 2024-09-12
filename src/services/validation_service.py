@@ -20,7 +20,7 @@ from models.validator_models import (
     TripValidatorRequest,
     TripValidatorResponse,
 )
-from parsers.validator_parsers import ValidatorParser
+from parsers.validator_parsers import ValidationParser
 
 logger = logging.getLogger(__name__)
 
@@ -31,13 +31,14 @@ class ValidationService:
         if not self.openai_api_key:
             raise ValueError("OpenAI API key not configured correctly.")
         self.openai_api_url = "https://api.openai.com/v1/chat/completions"
-        self.ai_results_parser = ValidatorParser()
+        self.ai_results_parser = ValidationParser()
 
     async def validate_itinerary(self, client_data: TripValidatorInput) -> TripValidatorResponse:
         try:
             ai_prompt_data_request = self._build_ai_request(client_data)
             ai_validation_results = await self._ai_request_validation(ai_prompt_data_request)
-            processed_results = self._process_ai_results(validation_results=ai_validation_results)
+            parsed_results = self.ai_results_parser.parse(ai_validation_results)
+            processed_results = self._process_ai_results(parsed_results=parsed_results)
         except ValidationError as e:
             raise HTTPException(status_code=400, detail=f"Invalid input data: {str(e)}")
         except Exception as e:
@@ -50,30 +51,18 @@ class ValidationService:
 
         prompt = f"""
         Validate the following travel itinerary and provide suggestions: {input_data.model_dump()}
-        Return the response in the following format:
+        Give the response in the following json format:
         
-        HEADER
-        X-Processing-Time: float
-        ---------------
-        PAYLOAD
-        
-            "output_data":
-                "is_valid": bool,
-                "validation_score": float,
-                "feedback": str,
-                "optimization_suggestions": [
-                    
-                    "original_segment":
-                    "suggested_segment":
-                    "reason":
-                    "estimated_improvement":
-                
-                ],
+        "output_data":
+            "feedback": str,
+            "optimization_suggestions": [
+                "original_segment":
+                "suggested_segment":
+                "reason":
+                "estimated_improvement":
+            ],
 
-                In original_segment, put the original itinerary, in suggested_segment, put the suggestions
-            ,
-            "version": str
-        
+        In original_segment, put the original itinerary, in suggested_segment, put the suggestions.       
         """
         data = {
             "model": "gpt-4o-mini",
@@ -85,52 +74,26 @@ class ValidationService:
 
         return data
 
-    async def _ai_request_validation(self, data: dict[str, Any]) -> dict:
+    async def _ai_request_validation(self, data: dict[str, Any]) -> str:
         headers = {"Authorization": f"Bearer {self.openai_api_key}", "Content-Type": "application/json"}
         async with aiohttp.ClientSession() as session:
             endpoint = self.openai_api_url
             try:
                 async with session.post(self.openai_api_url, headers=headers, json=data) as response:
                     if response.status == 200:
-                        result = await response.json()
-                        print(result)
-                        return {"suggestions": result["choices"][0]["message"]["content"]}
+                        result = await response.text()
+                        return result
                     logger.error(msg := f"{__name__} raised for status: {response.status}")
                     raise HTTPException(status_code=response.status, detail=msg)
             except (ClientConnectionError, HTTPException) as e:
                 logger.error(f"Request error for URL {endpoint}: {e}")
                 raise e
 
-    def _process_ai_results(self, validation_results: dict[str, Any]) -> TripValidatorResponse:
-        # TODO: Use the ai_validation_parser here and implement processing.
-
-        try:
-            parsed_results = self.ai_results_parser.parse(validation_results)
-            print(parsed_results)
-        except:
-            pass
-
-        suggestions = validation_results.get("suggestions", "")
-        is_valid = "valid" in suggestions.lower() and "invalid" not in suggestions.lower()
-        validation_score = 0.9 if is_valid else 0.5
-
-        optimization_suggestions = []
-        if "suggestions:" in suggestions.lower():
-            suggestion_text = suggestions.split("suggestions:")[1].strip()
-            optimization_suggestions.append(
-                OptimizationSuggestion(
-                    original_segment=None,  # TODO: map suggestion to respective segment.  # type: ignore
-                    suggested_segment=None,  # type: ignore
-                    reason=suggestion_text,
-                    estimated_improvement=10.0,  # TODO: Calculate actual value
-                )
-            )
-
-        output_data = TripValidatorOutput(
-            is_valid=is_valid,
-            validation_score=validation_score,
-            feedback=suggestions,
-            optimization_suggestions=optimization_suggestions,
+    def _process_ai_results(self, parsed_results: TripValidatorOutput) -> TripValidatorResponse:
+        processed_results = TripValidatorResponse(
+            output_data=parsed_results,
+            processing_time=0,  # TODO: Calculate total processing time
+            version="1.0.0",  # TODO: Give a version to this revision based on id (future implementation)
         )
 
-        return TripValidatorResponse(output_data=output_data, processing_time=0.0, version="1.0.0")
+        return processed_results
