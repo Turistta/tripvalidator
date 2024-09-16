@@ -16,6 +16,7 @@ from models.validator_models import (
     TripValidatorOutput,
     TripValidatorRequest,
     TripValidatorResponse,
+    TripSegment
 )
 
 
@@ -40,33 +41,39 @@ class ValidationService:
         return input_data
 
     async def _ai_validate(self, parsed_input: TripValidatorInput) -> dict:
+        # Chaves adicionadas pra deixar no formato JSON
         headers = {"Authorization": f"Bearer {self.openai_api_key}", "Content-Type": "application/json"}
         prompt = f"""
         Validate the following travel itinerary and provide suggestions: {parsed_input.model_dump()}
-        Return the response in the following format:
+        Return the response in the following JSON format:
         
-        HEADER
-        X-Processing-Time: float
-        ---------------
-        PAYLOAD
-        
-            "output_data":
-                "is_valid": bool,
-                "validation_score": float,
-                "feedback": str,
-                "optimization_suggestions": [
-                    
-                    "original_segment":
-                    "suggested_segment":
-                    "reason":
-                    "estimated_improvement":
-                
-                ],
-
-                In original_segment, put the original itinerary, in suggested_segment, put the suggestions
-            ,
-            "version": str
-        
+        {{
+            "header": {{
+                "X-Processing-Time": float
+            }},
+            "payload": {{
+                "output_data": {{
+                    "is_valid": bool,
+                    "validation_score": float,
+                    "feedback": str,
+                    "optimization_suggestions": [
+                        {{
+                            "original_segment": {{
+                                "location": "Point A to Point B",
+                                "distance": 120.5
+                            }},
+                            "suggested_segment": {{
+                                "location": "Point A to Point C",
+                                "distance": 100.0
+                            }},
+                            "reason": str,
+                            "estimated_improvement": float
+                        }}
+                    ]
+                }},
+                "version": str
+            }}
+        }}
         """
         data = {
             "model": "gpt-4o-mini",
@@ -84,29 +91,65 @@ class ValidationService:
                     )
 
                 result = await response.json()
-                return {"suggestions": result["choices"][0]["message"]["content"]}
+                return result["payload"]["output_data"]
+
+    def _map_segment(self, segment_data: dict) -> TripSegment:
+        
+        # Mapeia de JSON para objeto TripSegment
+        # Campo distance adicionado no TripSegment
+        location = segment_data.get("location", "")
+        start_point, end_point = location.split(" to ")
+
+        return TripSegment(
+            start_point=PlaceDetails(name=start_point),
+            end_point=PlaceDetails(name=end_point),
+            distance=segment_data.get("distance", 0.0)
+        )
+
+    def _calculate_estimated_improvement(self, original_segment: TripSegment, suggested_segment: TripSegment) -> float:
+        
+        # Se houver melhoria na distancia percorrido entre os itinerarios
+        # Calcula e retorna o percentual de melhoria
+        original_distance = original_segment.distance
+        suggested_distance = suggested_segment.distance
+
+        if original_distance == 0:
+            return 0.0
+
+        improvement = ((original_distance - suggested_distance) / original_distance) * 100
+        return max(improvement, 0.0)  # Retorna 0 se não houver melhoria
 
     def _process_ai_results(self, ai_results: dict) -> TripValidatorResponse:
-        suggestions = ai_results.get("suggestions", "")
-        is_valid = "valid" in suggestions.lower() and "invalid" not in suggestions.lower()
-        validation_score = 0.9 if is_valid else 0.5
+        suggestions = ai_results.get("optimization_suggestions", [])
+        is_valid = ai_results.get("is_valid", False)
+        validation_score = ai_results.get("validation_score", 0.0)
+        feedback = ai_results.get("feedback", "")
 
         optimization_suggestions = []
-        if "suggestions:" in suggestions.lower():
-            suggestion_text = suggestions.split("suggestions:")[1].strip()
+        for suggestion in suggestions:
+            original_segment_data = suggestion.get("original_segment", {})
+            suggested_segment_data = suggestion.get("suggested_segment", {})
+
+            # Mapeando os segmentos dos itinerarios original e sugerido
+            original_segment = self._map_segment(original_segment_data)
+            suggested_segment = self._map_segment(suggested_segment_data)
+
+            # Calculando a melhoria estimada atribuido em estimated_improvement
+            estimated_improvement = self._calculate_estimated_improvement(original_segment, suggested_segment)
+
             optimization_suggestions.append(
                 OptimizationSuggestion(
-                    original_segment=None,  # TODO: map suggestion to respective segment.  # type: ignore
-                    suggested_segment=None,  # type: ignore
-                    reason=suggestion_text,
-                    estimated_improvement=10.0,  # TODO: Calculate actual value
+                    original_segment=original_segment,
+                    suggested_segment=suggested_segment,
+                    reason=suggestion.get("reason", ""),
+                    estimated_improvement=estimated_improvement,
                 )
             )
 
         output_data = TripValidatorOutput(
             is_valid=is_valid,
             validation_score=validation_score,
-            feedback=suggestions,
+            feedback=feedback,
             optimization_suggestions=optimization_suggestions,
         )
 
